@@ -33,7 +33,7 @@ static inline bf16_t fp32_to_bf16(float s) {
     return bf16;
 }
 
-uint32_t pbf16_encode(bf16_t a, bf16_t b) { return ((uint32_t)a << 16) | b; }
+uint32_t bf16_encode(bf16_t a, bf16_t b) { return ((uint32_t)a << 16) | b; }
 
 void pack_fp32_matrix_to_packed_bf16_row_major(float matrix[N][N],
                                                uint32_t packed_matrix[N][n]) {
@@ -41,7 +41,7 @@ void pack_fp32_matrix_to_packed_bf16_row_major(float matrix[N][N],
         for (int j = 0; j < n; j++) {
             bf16_t bf16_a = fp32_to_bf16(matrix[i][j << 1]);
             bf16_t bf16_b = fp32_to_bf16(matrix[i][j << 1 + 1]);
-            packed_matrix[i][j] = pbf16_encode(bf16_a, bf16_b);
+            packed_matrix[i][j] = bf16_encode(bf16_a, bf16_b);
         }
     }
 }
@@ -52,7 +52,7 @@ void pack_fp32_matrix_to_packed_bf16_column_major(
         for (int i = 0; i < n; i++) {
             bf16_t bf16_a = fp32_to_bf16(matrix[i << 1][j]);
             bf16_t bf16_b = fp32_to_bf16(matrix[i << 1 | 1][j]);
-            packed_matrix[i][j] = pbf16_encode(bf16_a, bf16_b);
+            packed_matrix[i][j] = bf16_encode(bf16_a, bf16_b);
         }
     }
 }
@@ -78,6 +78,66 @@ void print_packed_bf16_matrix_column_major(uint32_t packed_matrix[2][4]) {
     }
     printf("\n");
 }
+
+
+uint32_t mask_lowest_zero(uint32_t x)
+{
+    uint32_t mask = x;
+    mask &= (mask << 1) | 0x1;
+    mask &= (mask << 2) | 0x3;
+    mask &= (mask << 4) | 0xF;
+    mask &= (mask << 8) | 0xFF;
+    mask &= (mask << 16) | 0xFFFF;
+    return mask;
+}
+
+uint32_t inc(uint32_t x)
+{
+    if (~x == 0)
+        return 0;
+    /* TODO: Carry flag */
+    uint32_t mask = mask_lowest_zero(x);
+    uint32_t z1 = mask ^ ((mask << 1) | 1);
+    return (x & ~mask) | z1;
+}
+
+
+uint32_t imul16(uint32_t a, uint32_t b)
+{
+    uint32_t r = 0;
+    for (int i = 0; i < 8; i++)
+        if ((b >> i) & 1)
+            r += a << i;
+    r &= 0xFFFF;
+    b >>= 16;
+    a &= 0xFFFF0000;
+    for (int i = 0; i < 8; i++)
+        if ((b >> i) & 1)
+            r += a << i;
+    return r;
+}
+
+
+bf16_t bf16_mul(bf16_t a, bf16_t b)
+{
+    uint32_t sr = (a ^ b) & 0x80008000;
+
+    uint32_t ma = (a & 0x007F007F) | 0x00800080;
+    uint32_t mb = (b & 0x007F007F) | 0x00800080;
+
+    uint32_t mr = (imul16(ma, mb) >> 7) & 0x007F007F;
+    uint32_t msh = (mr >> 8) & 1;
+    mr >>= msh;
+
+    uint32_t ea = (a >> 7) & 0x00FF00FF;
+    uint32_t eb = (b >> 7) & 0x00FF00FF;
+    uint32_t er = ea + eb - 0x007F007F; // 127 = 0b1111111 = 0x7F
+    er = msh ? inc(er) : er;
+
+    bf16_t r = sr | ((er & 0x00FF00FF) << 7) | (mr & 0x007F007F);
+    return r;
+}
+
 
 void print_fp32_matrix(float matrix[4][4]) {
     for (int i = 0; i < N; i++) {
