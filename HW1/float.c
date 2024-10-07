@@ -1,5 +1,7 @@
 #include <stdint.h>
 #include <stdio.h>
+#define N 8
+
 uint64_t mask_lowest_zero(uint64_t x) {
     uint64_t mask = x;
     mask &= (mask << 1) | 0x1;
@@ -87,6 +89,7 @@ float fmul32(float a, float b) {
     int64_t mr = mrtmp >> mshift;
     int32_t ertmp = ea + eb - 127;
     int32_t er = mshift ? inc(ertmp) : ertmp;
+    int sr = sa ^ sb;
     /* TODO: Overflow ^ */
     if (er >= 255) {
         // Overflow, return infinity
@@ -98,7 +101,6 @@ float fmul32(float a, float b) {
         return *(float *)&f_zero;
     }
 
-    int sr = sa ^ sb;
     int32_t r = (sr << 31) | ((er & 0xFF) << 23) | (mr & 0x7FFFFF);
     return *(float *)&r;
 }
@@ -223,99 +225,14 @@ float fadd32(float a, float b) {
     return *(float *)&r;
 }
 
-/* float32 addition */
-float fadd32(float a, float b) {
-    int32_t ia = *(int32_t *)&a;
-    int32_t ib = *(int32_t *)&b;
-    /* define sign */
-    int32_t sa = ia >> 31;
-    int32_t sb = ib >> 31;
-    int32_t sr;
-    /* define mantissa */
-    int32_t ma = (ia & 0x7FFFFF) | 0x800000;
-    int32_t mb = (ib & 0x7FFFFF) | 0x800000;
-    int32_t mr;
-    /* define exponent */
-    int32_t ea = ((ia >> 23) & 0xFF);
-    int32_t eb = ((ib >> 23) & 0xFF);
-    int32_t er;
-    /* define result */
-    int32_t result;
-    /*special values*/
-    if (ea == 0xFF && ma != 0x800000) {
-        int32_t f_nan = 0x7FF80001;
-        return *(float *)&f_nan;
-    }
-    if (eb == 0xFF && mb != 0x800000) {
-        int32_t f_nan = 0x7FF80001;
-        return *(float *)&f_nan;
-    }
-    if (ea == 0xFF && ma == 0x800000) {
-        if (eb == 0xFF && mb == 0x800000 && sb != sa) {
-            int32_t f_nan = 0x7F800001;
-            return *(float *)&f_nan;
-        } else {
-            int32_t f_inf = 0x7F800000 | sa << 31;
-            return *(float *)&f_inf;
+void print_matrix(float matrix[N][N]) {
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            printf("%8.4f ", matrix[i][j]);
         }
+        printf("\n");
     }
-    if (eb == 0xFF && mb == 0x800000) {
-        if (ea == 0xFF && ma == 0x800000 && sa != sb) {
-            int32_t f_nan = 0x7F800001;
-            return *(float *)&f_nan;
-        } else {
-            int32_t f_inf = 0x7F800000 | sb << 31;
-            return *(float *)&f_inf;
-        }
-    }
-    /* exponent align */
-    if (ea >= eb) {
-        if (ea - eb <= 24) {
-            mb = mb >> (ea - eb);
-        } else {
-            mb = 0;
-        }
-        er = ea;
-    } else {
-        if (eb - ea <= 24) {
-            ma = ma >> (eb - ea);
-        } else {
-            ma = 0;
-        }
-        er = eb;
-    }
-    /* addition or substraction */
-    sr = sa;
-    int32_t madd;
-    if ((sa ^ sb) == 0) {
-        madd = ma + mb;
-    } else {
-        madd = ma - mb;
-        if ((madd >> 31) != 0) {
-            sr ^= 1;
-            madd = ~madd + 1;
-        }
-    }
-    /* realign mantissa */
-    int32_t digits = get_highest_digit(madd);
-    if (digits == 25) {
-        mr = (madd + 1) >> 1;
-    } else {
-        mr = madd << (24 - digits);
-    }
-    er = er - (24 - digits);
-    /* overflow and underflow */
-    if (er < 0) {
-        int f_zero = 0 | (sa ^ sb) << 31;
-        return *(float *)&f_zero;
-    }
-    if (er >= 0xFF) {
-        int f_inf = 0x7F800000 | (sa ^ sb) << 31;
-        return *(float *)&f_inf;
-    }
-    /* result */
-    result = (sr << 31) | ((er & 0xFF) << 23) | (mr & 0x7FFFFF);
-    return *(float *)&result;
+    printf("\n");
 }
 
 void print_float(float f) {
@@ -329,12 +246,52 @@ void print_float(float f) {
     printf("float (in hex): 0x%08x\n", u.i);
 }
 
+void matrix_multiply_custom(float A[N][N], float B[N][N], float C[N][N]) {
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            float sum = 0.0f;
+            for (int k = 0; k < N; k++) {
+                float prod = fmul32(A[i][k], B[k][j]);
+                sum = fadd32(sum, prod);
+            }
+            C[i][j] = sum;
+        }
+    }
+}
+
+void matrix_multiply_standard(float A[N][N], float B[N][N], float C[N][N]) {
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            float sum = 0.0f;
+            for (int k = 0; k < N; k++) {
+                sum += A[i][k] * B[k][j];
+            }
+            C[i][j] = sum;
+        }
+    }
+}
+
 int main() {
-    float a = 0x7FA00000;
-    float b = 0.5;
-    printf("std:%f\n", a * b);
-    print_float(fadd32(a, b));
-    // printf("my:%f\n", print_float(fmul32(a, b)));
+    float A[N][N];
+    float B[N][N];
+    float C[N][N];
+    float C_std[N][N];
+
+    // 初始化 A 和 B 矩陣為 3.14159
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            A[i][j] = 3.14159f;
+            B[i][j] = 3.14159f;
+        }
+    }
+
+    matrix_multiply_custom(A, B, C);
+    matrix_multiply_custom(A, B, C_std);
+
+    printf("Resultant costum matrix C:\n");
+    print_matrix(C);
+    printf("Resultant std matrix C:\n");
+    print_matrix(C_std);
 
     return 0;
 }
