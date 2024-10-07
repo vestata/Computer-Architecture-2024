@@ -286,7 +286,7 @@ int main() {
     }
 
     matrix_multiply_custom(A, B, C);
-    matrix_multiply_custom(A, B, C_std);
+    matrix_multiply_standard(A, B, C_std);
 
     printf("Resultant costum matrix C:\n");
     print_matrix(C);
