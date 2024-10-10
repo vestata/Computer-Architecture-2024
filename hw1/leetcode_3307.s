@@ -17,14 +17,81 @@ k3_high: .word 0
 n3:      .word 10
 ans3:    .word 0x62
 
+pass_msg: .string "All tests pass!\n"
+fail_msg: .string "Test failed!\n"
+
 .text
 main:
-    lw a0, k1_low
-    lw a1, k1_high
+    # Test case 1
+    la t0, k1_low
+    lw a0, 0(t0)
+    la t1, k1_high
+    lw a1, 0(t1)
     la a2, op1
-    lw a3, n1
+    la t2, n1
+    lw a3, 0(t2)
     jal ra, kthCharacter
-    li  a7, 10        # end program
+
+    # Compare with ans1
+    la t3, ans1
+    lw t4, 0(t3)
+    jal ra, check_result
+
+    # Test case 2
+    la t0, k2_low
+    lw a0, 0(t0)
+    la t1, k2_high
+    lw a1, 0(t1)
+    la a2, op2
+    la t2, n2
+    lw a3, 0(t2)
+    jal ra, kthCharacter
+
+    # Compare with ans2
+    la t3, ans2
+    lw t4, 0(t3)
+    jal ra, check_result
+
+    # Test case 3
+    la t0, k3_low
+    lw a0, 0(t0)
+    la t1, k3_high
+    lw a1, 0(t1)
+    la a2, op3
+    la t2, n3
+    lw a3, 0(t2)
+    jal ra, kthCharacter
+
+    # Compare with ans3
+    la t3, ans3
+    lw t4, 0(t3)
+    jal ra, check_result
+
+    # If all pass, print "All tests pass!"
+    li a7, 4               # Syscall for print string
+    la a0, pass_msg
+    ecall
+
+    # End program
+    li a7, 10              # Syscall for exit
+    ecall
+
+check_result:
+    # Input:
+    # a0: result from kthCharacter
+    # t4: expected result
+
+    bne a0, t4, fail        # If a0 != expected result, jump to fail
+    ret                     # If equal, return
+
+fail:
+    # Print "Test failed!" and exit
+    li a7, 4               # Syscall for print string
+    la a0, fail_msg
+    ecall
+
+    # End program
+    li a7, 10              # Syscall for exit
     ecall
 
 my_clz64:
